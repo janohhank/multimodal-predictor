@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 
-class CTDataset(Dataset):
+class PEDataset(Dataset):
     def __init__(self, data_dir, window_size=24):
         self.data_dir = data_dir
         self.window_size = window_size
