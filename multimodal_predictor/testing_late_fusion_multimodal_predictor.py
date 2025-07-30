@@ -11,7 +11,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from pe_logistic_regression.logistic_regression_model_helper import (
     LogisticRegressionModelHelper,
 )
-from pe_dataset_loader import PEDatasetLoader
+from pe_late_fusion_dataset_loader import PELateFusionDatasetLoader
 from pe_net.pe_net_model_helper import PENetModelHelper
 
 
@@ -39,7 +39,7 @@ def evaluate(test_parameters_path: str):
     logistic_regression_model = LogisticRegressionModelHelper.load_model(ehr_model_path)
 
     # Load test dataset
-    dataset_loader: PEDatasetLoader = PEDatasetLoader(
+    dataset_loader: PELateFusionDatasetLoader = PELateFusionDatasetLoader(
         dataset_path,
         ehr_scaler_path,
         ehr_features,

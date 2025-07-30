@@ -1,15 +1,17 @@
 import argparse
 import json
 
+import joblib
 import numpy as np
 import torch.multiprocessing as mp
 import torch
 import torch.package
+from sklearn.metrics import average_precision_score, roc_auc_score
 
-from pe_logistic_regression.logistic_regression_model_helper import (
-    LogisticRegressionModelHelper,
+from pe_early_fusion_dataset_loader import (
+    PEEarlyFusionDatasetLoader,
 )
-from pe_dataset_loader import PEDatasetLoader
+from pe_xgboost.xgboost_model_helper import XGBoostModelHelper
 from pe_net.pe_net_model_helper import PENetModelHelper
 
 
@@ -30,17 +32,17 @@ def evaluate(test_parameters_path: str):
         pe_net_model_path, pe_net_model_package, pe_net_model_resource
     )
 
-    # Load PE logistic regression model
+    # Load XGBoost model
     ehr_model_path: str = config["ehr_model"]["model_path"]
     ehr_scaler_path: str = config["ehr_model"]["scaler_path"]
-    ehr_features: list = config["ehr_model"]["features"]
-    logistic_regression_model = LogisticRegressionModelHelper.load_model(ehr_model_path)
+    ehr_selector_path: list = config["ehr_model"]["selector_path"]
+    xgboost_model = XGBoostModelHelper.load_model(ehr_model_path)
+    scaler = joblib.load(ehr_scaler_path)
+    selector = joblib.load(ehr_selector_path)
 
     # Load test dataset
-    dataset_loader: PEDatasetLoader = PEDatasetLoader(
+    dataset_loader: PEEarlyFusionDatasetLoader = PEEarlyFusionDatasetLoader(
         dataset_path,
-        ehr_scaler_path,
-        ehr_features,
         window_size=pe_net_window_size,
         num_workers=4,
     )
@@ -49,24 +51,33 @@ def evaluate(test_parameters_path: str):
     device = torch.device("cpu")
     print(f"Device initialized: {device}.")
 
+    predictions = {}
     ground_truth_labels = {}
-    pe_net_predictions = {}
     with torch.no_grad():
         for ct_inputs, ehr_data, label, patient_id in dataset_loader:
             ct_inputs = ct_inputs.to(device)  # (1, 1, D, H, W)
-            logits, features = pe_net_model.forward(ct_inputs)
-            probs = torch.sigmoid(logits).cpu().item()
+            _, features = pe_net_model.forward(ct_inputs)
+
+            scaled = scaler.transform(
+                np.hstack([ehr_data.cpu().numpy()[0], features.cpu().numpy()])
+            )
+            xgboost_input = selector.transform(scaled)
+
+            y_prob = xgboost_model.predict_proba(xgboost_input)[:, 1]
 
             idx = patient_id.item()
-            if idx not in pe_net_predictions:
-                # 2048
-                np.save(
-                    str(patient_id.item()) + "_ct_features.npy",
-                    features.cpu().numpy()[0],
-                )
-                pe_net_predictions[idx] = []
-            pe_net_predictions[idx].append(probs)
+            predictions[idx] = y_prob
             ground_truth_labels[idx] = label.item()
+
+    model_metrics = {
+        "PR-AUC": average_precision_score(
+            list(ground_truth_labels.values()), list(predictions.values())
+        ),
+        "ROC-AUC": roc_auc_score(
+            list(ground_truth_labels.values()), list(predictions.values())
+        ),
+    }
+    print(model_metrics)
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
 

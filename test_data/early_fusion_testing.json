@@ -1,5 +1,5 @@
 {
-  "test_dataset": "d:\\Downloads\\radfusion-dataset\\split\\train",
+  "test_dataset": "d:\\Downloads\\radfusion-dataset\\split\\test",
   "pe_net_model": {
     "model_path": "D:\\Downloads\\radfusion-dataset\\pe_net_model\\penet_whole_2.pt",
     "model_package": "model",
@@ -7,37 +7,8 @@
     "window_size": -1
   },
   "ehr_model": {
-    "model_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model\\2025-07-29-15-50-41\\model\\model.pkl",
-    "scaler_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model\\2025-07-29-15-50-41\\model\\scaler.pkl",
-    "features": [
-      " COMPLICATIONS OCCURRING MAINLY IN THE COURSE OF LABOR AND DELIVERY:frequency",
-      " Other congenital anomalies of heart:frequency",
-      "Other and unspecified anemias:frequency",
-      "DISEASES OF VEINS AND LYMPHATICS, AND OTHER DISEASES OF CIRCULATORY SYSTEM:frequency",
-      " HYPERTENSIVE DISEASE:frequency",
-      "ISCHEMIC HEART DISEASE:frequency",
-      "DISEASES OF ORAL CAVITY, SALIVARY GLANDS, AND JAWS:frequency",
-      "OTHER DISEASES OF INTESTINES AND PERITONEUM:frequency",
-      "HEREDITARY AND DEGENERATIVE DISEASES OF THE CENTRAL NERVOUS SYSTEM:frequency",
-      " PNEUMONIA AND INFLUENZA:frequency",
-      " DISEASES OF OTHER ENDOCRINE GLANDS:frequency",
-      "MYCOSES:frequency",
-      " OTHER BACTERIAL DISEASES:frequency",
-      "POISONING BY DRUGS, MEDICINAL AND BIOLOGICAL SUBSTANCES:frequency",
-      "Symptoms involving cardiovascular system:frequency",
-      "CHRONIC RHEUMATIC HEART DISEASE:presence",
-      "DISEASES OF ARTERIES, ARTERIOLES, AND CAPILLARIES:presence",
-      "DISEASES OF PULMONARY CIRCULATION:presence",
-      " HYPERTENSIVE DISEASE:presence",
-      " NONINFECTIOUS ENTERITIS AND COLITIS:presence",
-      "DORSOPATHIES:presence",
-      "DISEASES OF THE EAR AND MASTOID PROCESS:presence",
-      "NEUROTIC DISORDERS, PERSONALITY DISORDERS, AND OTHER NONPSYCHOTIC MENTAL DISORDERS:presence",
-      "bilirubin:Binary",
-      "glucose:Binary",
-      "potassium:Binary",
-      "d-dimer:Value",
-      "sodium:Value"
-    ]
+    "model_path": "D:\\Downloads\\radfusion-dataset\\xgboost_model\\xgb_model.joblib",
+    "scaler_path": "D:\\Downloads\\radfusion-dataset\\xgboost_model\\scaler.joblib",
+    "selector_path": "D:\\Downloads\\radfusion-dataset\\xgboost_model\\selector.joblib"
   }
 }

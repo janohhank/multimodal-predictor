@@ -1,0 +1,175 @@
+import json
+import os
+
+import cv2
+import joblib
+import numpy as np
+import pandas
+import torch
+from pandas import DataFrame
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import Dataset
+
+
+class PELateFusionDataset(Dataset):
+    CROP_SHAPE: list = [208, 208]
+    RESIZE_SHAPE: list = [224, 224]
+
+    CONTRAST_HU_MIN: float = -100
+    CONTRAST_HU_MAX: float = 900
+    CONTRAST_HU_MEAN: float = 0.15897
+
+    __ehr_features: list = None
+    __window_size: int = None
+    __ehr_scaler: StandardScaler = None
+    __samples: list = []
+
+    def __init__(
+        self,
+        data_dir: str,
+        ehr_scaler_path: str,
+        ehr_features: list,
+        window_size: int = 24,
+    ):
+        self.__ehr_features = ehr_features
+        self.__window_size = window_size
+
+        # Load EHR standard scaler.
+        self.__ehr_scaler = joblib.load(ehr_scaler_path)
+
+        # This is a list of tuples: (npy_path, json_path, csv_path, start_idx).
+        self.__samples = []
+
+        # Match all .npy/.json/.csv files and index window positions.
+        for file_name in os.listdir(data_dir):
+            if file_name.endswith(".npy"):
+                base_name = file_name[:-4]
+                npy_path = os.path.join(data_dir, base_name + ".npy")
+                json_path = os.path.join(data_dir, base_name + ".json")
+                csv_path = os.path.join(data_dir, base_name + ".csv")
+
+                if not os.path.exists(json_path):
+                    raise FileNotFoundError(f"Missing JSON for {npy_path}")
+
+                if not os.path.exists(json_path):
+                    raise FileNotFoundError(f"Missing CSV for {npy_path}")
+
+                volume = np.load(npy_path)
+                num_slices = volume.shape[0]
+
+                if self.__window_size > 0:
+                    for start_idx in range(0, num_slices, self.__window_size):
+                        self.__samples.append(
+                            (npy_path, json_path, csv_path, start_idx)
+                        )
+                else:
+                    self.__samples.append((npy_path, json_path, csv_path, 0))
+
+    def __len__(self):
+        return len(self.__samples)
+
+    def __getitem__(self, idx: int):
+        npy_path, json_path, csv_path, start_idx = self.__samples[idx]
+
+        # Load the current sample metadata.
+        with open(json_path, "r") as f:
+            meta: dict = json.load(f)
+        patient_id: int = int(meta["idx"])
+        label: int = int(meta["label"])
+
+        # Load the current sample EHR data.
+        ehr_data: DataFrame = pandas.read_csv(csv_path)
+
+        # Load current sample 3D CT volume (window size).
+        volume = np.load(npy_path)
+        if self.__window_size > 0:
+            end_idx: int = min(start_idx + self.__window_size, volume.shape[0])
+        else:
+            end_idx: int = volume.shape[0]
+
+        # Pad CT volume with air (-1000 HU) if needed
+        if end_idx - start_idx < self.__window_size and self.__window_size > 0:
+            padding = np.full(
+                (self.__window_size - (end_idx - start_idx), *volume.shape[1:]),
+                -1000.0,
+                dtype=np.float32,
+            )
+            volume_window = np.concatenate([volume[start_idx:end_idx], padding], axis=0)
+        else:
+            volume_window = volume[start_idx:end_idx]
+
+        # Transform CT volume.
+        volume_window = self.__transform_ct_volume(volume_window)
+
+        # Transform EHR data.
+        ehr_data = self.__transform_ehr_data(ehr_data)
+
+        return volume_window, ehr_data, label, patient_id
+
+    def __transform_ehr_data(self, ehr_data: DataFrame):
+        x_test_reduced = ehr_data[self.__ehr_features].copy()
+        return self.__ehr_scaler.transform(x_test_reduced)
+
+    def __transform_ct_volume(self, volume):
+        # Rescale
+        inputs = self.__resize_slice_wise(
+            volume, tuple(PELateFusionDataset.RESIZE_SHAPE)
+        )
+
+        # Crop
+        row_margin = max(0, inputs.shape[-2] - PELateFusionDataset.CROP_SHAPE[-2])
+        col_margin = max(0, inputs.shape[-1] - PELateFusionDataset.CROP_SHAPE[-1])
+        row = row_margin // 2
+        col = col_margin // 2
+        inputs = inputs[
+            :,
+            row : row + PELateFusionDataset.CROP_SHAPE[-2],
+            col : col + PELateFusionDataset.CROP_SHAPE[-1],
+        ]
+
+        # Normalize raw Hounsfield Units
+        inputs = self.__normalize(inputs)
+
+        # Add channel dimension -> shape: (1, D, H, W)
+        inputs = np.expand_dims(inputs, axis=0)
+        inputs = torch.from_numpy(inputs)
+
+        return inputs
+
+    def __resize_slice_wise(
+        self, volume, slice_shape, interpolation_method=cv2.INTER_AREA
+    ):
+        """Resize a volume slice-by-slice.
+
+        Args:
+            volume: Volume to resize.
+            slice_shape: Shape for a single slice.
+            interpolation_method: Interpolation method to pass to `cv2.resize`.
+
+        Returns:
+            Volume after reshaping every slice.
+        """
+        slices = list(volume)
+        for i in range(len(slices)):
+            slices[i] = cv2.resize(
+                slices[i], slice_shape, interpolation=interpolation_method
+            )
+        return np.array(slices)
+
+    def __normalize(self, volume):
+        """Normalize an ndarray of raw Hounsfield Units to [-1, 1].
+
+        Clips the values to [min, max] and scales into [0, 1],
+        then subtracts the mean pixel (min, max, mean are defined in constants.py).
+
+        Args:
+            pixels: NumPy ndarray to convert. Any shape.
+
+        Returns:
+            NumPy ndarray with normalized pixels in [-1, 1]. Same shape as input.
+        """
+        pixels = volume.astype(np.float32)
+        pixels = (pixels - PELateFusionDataset.CONTRAST_HU_MIN) / (
+            PELateFusionDataset.CONTRAST_HU_MAX - PELateFusionDataset.CONTRAST_HU_MIN
+        )
+        return np.clip(pixels, 0.0, 1.0) - PELateFusionDataset.CONTRAST_HU_MEAN

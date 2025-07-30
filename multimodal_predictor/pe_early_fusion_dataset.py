@@ -2,16 +2,14 @@ import json
 import os
 
 import cv2
-import joblib
 import numpy as np
 import pandas
 import torch
 from pandas import DataFrame
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset
 
 
-class PEDataset(Dataset):
+class PEEarlyFusionDataset(Dataset):
     CROP_SHAPE: list = [208, 208]
     RESIZE_SHAPE: list = [224, 224]
 
@@ -19,30 +17,22 @@ class PEDataset(Dataset):
     CONTRAST_HU_MAX: float = 900
     CONTRAST_HU_MEAN: float = 0.15897
 
-    __ehr_features: list = None
     __window_size: int = None
-    __ehr_scaler: StandardScaler = None
     __samples: list = []
 
     def __init__(
         self,
         data_dir: str,
-        ehr_scaler_path: str,
-        ehr_features: list,
         window_size: int = 24,
     ):
-        self.__ehr_features = ehr_features
         self.__window_size = window_size
-
-        # Load EHR standard scaler.
-        self.__ehr_scaler = joblib.load(ehr_scaler_path)
 
         # This is a list of tuples: (npy_path, json_path, csv_path, start_idx).
         self.__samples = []
 
         # Match all .npy/.json/.csv files and index window positions.
         for file_name in os.listdir(data_dir):
-            if file_name.endswith(".npy"):
+            if file_name.endswith(".npy") and "_ct_features" not in file_name:
                 base_name = file_name[:-4]
                 npy_path = os.path.join(data_dir, base_name + ".npy")
                 json_path = os.path.join(data_dir, base_name + ".json")
@@ -101,28 +91,28 @@ class PEDataset(Dataset):
         # Transform CT volume.
         volume_window = self.__transform_ct_volume(volume_window)
 
-        # Transform EHR data.
-        ehr_data = self.__transform_ehr_data(ehr_data)
-
-        return volume_window, ehr_data, label, patient_id
-
-    def __transform_ehr_data(self, ehr_data: DataFrame):
-        x_test_reduced = ehr_data[self.__ehr_features].copy()
-        return self.__ehr_scaler.transform(x_test_reduced)
+        return (
+            volume_window,
+            ehr_data.drop("label", axis=1).drop("idx", axis=1).to_numpy(),
+            label,
+            patient_id,
+        )
 
     def __transform_ct_volume(self, volume):
         # Rescale
-        inputs = self.__resize_slice_wise(volume, tuple(PEDataset.RESIZE_SHAPE))
+        inputs = self.__resize_slice_wise(
+            volume, tuple(PEEarlyFusionDataset.RESIZE_SHAPE)
+        )
 
         # Crop
-        row_margin = max(0, inputs.shape[-2] - PEDataset.CROP_SHAPE[-2])
-        col_margin = max(0, inputs.shape[-1] - PEDataset.CROP_SHAPE[-1])
+        row_margin = max(0, inputs.shape[-2] - PEEarlyFusionDataset.CROP_SHAPE[-2])
+        col_margin = max(0, inputs.shape[-1] - PEEarlyFusionDataset.CROP_SHAPE[-1])
         row = row_margin // 2
         col = col_margin // 2
         inputs = inputs[
             :,
-            row : row + PEDataset.CROP_SHAPE[-2],
-            col : col + PEDataset.CROP_SHAPE[-1],
+            row : row + PEEarlyFusionDataset.CROP_SHAPE[-2],
+            col : col + PEEarlyFusionDataset.CROP_SHAPE[-1],
         ]
 
         # Normalize raw Hounsfield Units
@@ -167,7 +157,7 @@ class PEDataset(Dataset):
             NumPy ndarray with normalized pixels in [-1, 1]. Same shape as input.
         """
         pixels = volume.astype(np.float32)
-        pixels = (pixels - PEDataset.CONTRAST_HU_MIN) / (
-            PEDataset.CONTRAST_HU_MAX - PEDataset.CONTRAST_HU_MIN
+        pixels = (pixels - PEEarlyFusionDataset.CONTRAST_HU_MIN) / (
+            PEEarlyFusionDataset.CONTRAST_HU_MAX - PEEarlyFusionDataset.CONTRAST_HU_MIN
         )
-        return np.clip(pixels, 0.0, 1.0) - PEDataset.CONTRAST_HU_MEAN
+        return np.clip(pixels, 0.0, 1.0) - PEEarlyFusionDataset.CONTRAST_HU_MEAN

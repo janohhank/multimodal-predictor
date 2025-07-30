@@ -1,9 +1,9 @@
 from torch.utils.data import DataLoader
 
-from pe_dataset import PEDataset
+from pe_late_fusion_dataset import PELateFusionDataset
 
 
-class PEDatasetLoader(DataLoader):
+class PELateFusionDatasetLoader(DataLoader):
 
     def __init__(
         self,
@@ -15,8 +15,8 @@ class PEDatasetLoader(DataLoader):
         num_workers: int = 1,
     ):
         print("Loading PE dataset.")
-        super(PEDatasetLoader, self).__init__(
-            PEDataset(
+        super(PELateFusionDatasetLoader, self).__init__(
+            PELateFusionDataset(
                 dataset_path, ehr_scaler_path, ehr_features, window_size=window_size
             ),
             batch_size=batch_size,
