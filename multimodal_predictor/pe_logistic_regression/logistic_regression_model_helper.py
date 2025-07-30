@@ -1,9 +1,11 @@
 from abc import ABC
 from typing import Any
 
+import joblib
+
 
 class LogisticRegressionModelHelper(ABC):
 
     @staticmethod
     def load_model(model_path: str) -> Any:
-        pass
+        return joblib.load(model_path)

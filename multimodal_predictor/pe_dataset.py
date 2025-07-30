@@ -2,62 +2,86 @@ import json
 import os
 
 import cv2
+import joblib
 import numpy as np
+import pandas
 import torch
+from pandas import DataFrame
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset
 
 
 class PEDataset(Dataset):
-    def __init__(self, data_dir, window_size=24):
-        self.data_dir = data_dir
-        self.window_size = window_size
-        self.samples = []  # list of tuples: (npy_path, json_path, start_idx)
-        self.crop_shape = [208, 208]
-        self.resize_shape = [224, 224]
+    CROP_SHAPE: list = [208, 208]
+    RESIZE_SHAPE: list = [224, 224]
 
-        # Match all .npy/.json files and index window positions
-        for fname in os.listdir(data_dir):
-            if fname.endswith(".npy"):
-                base_name = fname[:-4]
+    CONTRAST_HU_MIN: float = -100
+    CONTRAST_HU_MAX: float = 900
+    CONTRAST_HU_MEAN: float = 0.15897
+
+    __ehr_features: list = None
+    __window_size: int = None
+    __ehr_scaler: StandardScaler = None
+    __samples: list = []
+
+    def __init__(
+        self,
+        data_dir: str,
+        ehr_scaler_path: str,
+        ehr_features: list,
+        window_size: int = 24,
+    ):
+        self.__ehr_features = ehr_features
+        self.__window_size = window_size
+
+        # Load EHR standard scaler.
+        self.__ehr_scaler = joblib.load(ehr_scaler_path)
+
+        # This is a list of tuples: (npy_path, json_path, csv_path, start_idx).
+        self.__samples = []
+
+        # Match all .npy/.json/.csv files and index window positions.
+        for file_name in os.listdir(data_dir):
+            if file_name.endswith(".npy"):
+                base_name = file_name[:-4]
                 npy_path = os.path.join(data_dir, base_name + ".npy")
                 json_path = os.path.join(data_dir, base_name + ".json")
+                csv_path = os.path.join(data_dir, base_name + ".csv")
 
                 if not os.path.exists(json_path):
                     raise FileNotFoundError(f"Missing JSON for {npy_path}")
 
+                if not os.path.exists(json_path):
+                    raise FileNotFoundError(f"Missing CSV for {npy_path}")
+
                 volume = np.load(npy_path)
                 num_slices = volume.shape[0]
                 for start_idx in range(0, num_slices, window_size):
-                    self.samples.append((npy_path, json_path, start_idx))
+                    self.__samples.append((npy_path, json_path, csv_path, start_idx))
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.__samples)
 
-    def __getitem__(self, idx):
-        npy_path, json_path, start_idx = self.samples[idx]
+    def __getitem__(self, idx: int):
+        npy_path, json_path, csv_path, start_idx = self.__samples[idx]
 
-        # Load label
+        # Load the current sample metadata.
         with open(json_path, "r") as f:
-            meta = json.load(f)
+            meta: dict = json.load(f)
+        patient_id: int = int(meta["idx"])
+        label: int = int(meta["label"])
 
-        label = int(meta["label"])
-        patient_id = int(meta["idx"])
+        # Load the current sample EHR data.
+        ehr_data: DataFrame = pandas.read_csv(csv_path)
 
-        # Load 3D volume
+        # Load current sample 3D CT volume (window size).
         volume = np.load(npy_path)
-        end_idx = min(start_idx + self.window_size, volume.shape[0])
+        end_idx: int = min(start_idx + self.__window_size, volume.shape[0])
 
-        # Pad with air (-1000 HU) if needed
-        """Pad 3D volume with air on both ends to desired number of slices.
-        Args:
-            volume_: 3D NumPy ndarray, where slices are along depth dimension (un-normalized raw HU).
-            pad_value: Constant value to use for padding.
-        Returns:
-            Padded volume with depth args.num_slices. Extra padding voxels have pad_value.
-        """
-        if end_idx - start_idx < self.window_size:
+        # Pad CT volume with air (-1000 HU) if needed
+        if end_idx - start_idx < self.__window_size:
             padding = np.full(
-                (self.window_size - (end_idx - start_idx), *volume.shape[1:]),
+                (self.__window_size - (end_idx - start_idx), *volume.shape[1:]),
                 -1000.0,
                 dtype=np.float32,
             )
@@ -65,28 +89,37 @@ class PEDataset(Dataset):
         else:
             volume_window = volume[start_idx:end_idx]
 
-        # Transform
-        volume_window = self.transform(volume_window)
+        # Transform CT volume.
+        volume_window = self.__transform_ct_volume(volume_window)
 
-        return volume_window, label, patient_id
+        # Transform EHR data.
+        ehr_data = self.__transform_ehr_data(ehr_data)
 
-    def transform(self, volume):
+        return volume_window, ehr_data, label, patient_id
+
+    def __transform_ehr_data(self, ehr_data: DataFrame):
+        x_test_reduced = ehr_data[self.__ehr_features].copy()
+        return self.__ehr_scaler.transform(x_test_reduced)
+
+    def __transform_ct_volume(self, volume):
         # Rescale
-        inputs = self.__resize_slice_wise(volume, tuple(self.resize_shape))
+        inputs = self.__resize_slice_wise(volume, tuple(PEDataset.RESIZE_SHAPE))
 
         # Crop
-        row_margin = max(0, inputs.shape[-2] - self.crop_shape[-2])
-        col_margin = max(0, inputs.shape[-1] - self.crop_shape[-1])
+        row_margin = max(0, inputs.shape[-2] - PEDataset.CROP_SHAPE[-2])
+        col_margin = max(0, inputs.shape[-1] - PEDataset.CROP_SHAPE[-1])
         row = row_margin // 2
         col = col_margin // 2
         inputs = inputs[
-            :, row : row + self.crop_shape[-2], col : col + self.crop_shape[-1]
+            :,
+            row : row + PEDataset.CROP_SHAPE[-2],
+            col : col + PEDataset.CROP_SHAPE[-1],
         ]
 
         # Normalize raw Hounsfield Units
         inputs = self.__normalize(inputs)
 
-        # Add channel dimension # Add channel dimension # shape: (1, D, H, W)
+        # Add channel dimension -> shape: (1, D, H, W)
         inputs = np.expand_dims(inputs, axis=0)
         inputs = torch.from_numpy(inputs)
 
@@ -124,9 +157,8 @@ class PEDataset(Dataset):
         Returns:
             NumPy ndarray with normalized pixels in [-1, 1]. Same shape as input.
         """
-        CONTRAST_HU_MIN: float = -100
-        CONTRAST_HU_MAX: float = 900
-        CONTRAST_HU_MEAN: float = 0.15897
         pixels = volume.astype(np.float32)
-        pixels = (pixels - CONTRAST_HU_MIN) / (CONTRAST_HU_MAX - CONTRAST_HU_MIN)
-        return np.clip(pixels, 0.0, 1.0) - CONTRAST_HU_MEAN
+        pixels = (pixels - PEDataset.CONTRAST_HU_MIN) / (
+            PEDataset.CONTRAST_HU_MAX - PEDataset.CONTRAST_HU_MIN
+        )
+        return np.clip(pixels, 0.0, 1.0) - PEDataset.CONTRAST_HU_MEAN
