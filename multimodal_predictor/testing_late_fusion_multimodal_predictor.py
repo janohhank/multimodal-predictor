@@ -85,9 +85,6 @@ def evaluate(test_parameters_path: str):
     }
     print(pe_net_metrics)
 
-    print(ehr_model_predictions)
-    print(ehr_model_predictions.values())
-    print(list(ehr_model_predictions.values()))
     ehr_model_metrics = {
         "EHR Model: PR-AUC": average_precision_score(
             labels, list(ehr_model_predictions.values())
@@ -97,6 +94,34 @@ def evaluate(test_parameters_path: str):
         ),
     }
     print(ehr_model_metrics)
+
+    final_predictions_max = {}
+    for idx, pe_net_prediction in final_pe_net_predictions.items():
+        ehr_model_prediction = ehr_model_predictions[idx]
+        final_predictions_max[idx] = max(pe_net_prediction, ehr_model_prediction[0])
+    final_metrics_max = {
+        "FINAL-MAX PR-AUC": average_precision_score(
+            labels, list(final_predictions_max.values())
+        ),
+        "FINAL-MAX ROC-AUC": roc_auc_score(
+            labels, list(final_predictions_max.values())
+        ),
+    }
+    print(final_metrics_max)
+
+    final_predictions_avg = {}
+    for idx, pe_net_prediction in final_pe_net_predictions.items():
+        ehr_model_prediction = ehr_model_predictions[idx]
+        final_predictions_avg[idx] = (pe_net_prediction + ehr_model_prediction[0]) / 2.0
+    final_metrics_average = {
+        "FINAL-AVG PR-AUC": average_precision_score(
+            labels, list(final_predictions_avg.values())
+        ),
+        "FINAL-AVG ROC-AUC": roc_auc_score(
+            labels, list(final_predictions_avg.values())
+        ),
+    }
+    print(final_metrics_average)
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
 
