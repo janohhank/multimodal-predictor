@@ -56,8 +56,14 @@ class PEDataset(Dataset):
 
                 volume = np.load(npy_path)
                 num_slices = volume.shape[0]
-                for start_idx in range(0, num_slices, window_size):
-                    self.__samples.append((npy_path, json_path, csv_path, start_idx))
+
+                if self.__window_size > 0:
+                    for start_idx in range(0, num_slices, self.__window_size):
+                        self.__samples.append(
+                            (npy_path, json_path, csv_path, start_idx)
+                        )
+                else:
+                    self.__samples.append((npy_path, json_path, csv_path, 0))
 
     def __len__(self):
         return len(self.__samples)
@@ -76,10 +82,13 @@ class PEDataset(Dataset):
 
         # Load current sample 3D CT volume (window size).
         volume = np.load(npy_path)
-        end_idx: int = min(start_idx + self.__window_size, volume.shape[0])
+        if self.__window_size > 0:
+            end_idx: int = min(start_idx + self.__window_size, volume.shape[0])
+        else:
+            end_idx: int = volume.shape[0]
 
         # Pad CT volume with air (-1000 HU) if needed
-        if end_idx - start_idx < self.__window_size:
+        if end_idx - start_idx < self.__window_size and self.__window_size > 0:
             padding = np.full(
                 (self.__window_size - (end_idx - start_idx), *volume.shape[1:]),
                 -1000.0,

@@ -1,10 +1,10 @@
 {
-  "test_dataset": "d:\\Downloads\\radfusion-dataset\\split\\test",
+  "test_dataset": "d:\\Downloads\\radfusion-dataset\\split\\train",
   "pe_net_model": {
     "model_path": "D:\\Downloads\\radfusion-dataset\\pe_net_model\\penet_whole_2.pt",
     "model_package": "model",
     "model_resource": "model.pkl",
-    "window_size": 24
+    "window_size": -1
   },
   "ehr_model": {
     "model_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model\\2025-07-29-15-50-41\\model\\model.pkl",
