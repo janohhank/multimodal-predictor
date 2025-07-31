@@ -8,6 +8,7 @@ import torch
 import torch.package
 from sklearn.metrics import roc_auc_score, average_precision_score
 
+from plot_utils import PlotUtility
 from pe_logistic_regression.logistic_regression_model_helper import (
     LogisticRegressionModelHelper,
 )
@@ -52,8 +53,8 @@ def evaluate(test_parameters_path: str):
     print(f"Device initialized: {device}.")
 
     ground_truth_labels = {}
-    pe_net_predictions = {}
-    ehr_model_predictions = {}
+    pe_net_probabilities = {}
+    ehr_model_probabilities = {}
     with torch.no_grad():
         for ct_inputs, ehr_data, label, patient_id in dataset_loader:
             ct_inputs = ct_inputs.to(device)  # (1, 1, D, H, W)
@@ -61,22 +62,24 @@ def evaluate(test_parameters_path: str):
             probs = torch.sigmoid(logits).cpu().item()
 
             idx = patient_id.item()
-            if idx not in pe_net_predictions:
-                pe_net_predictions[idx] = []
+            if idx not in pe_net_probabilities:
+                pe_net_probabilities[idx] = []
 
                 y_probs = logistic_regression_model.predict_proba(
                     ehr_data.cpu().numpy()[0]
                 )[:, 1]
-                # y_pred = logistic_regression_model.predict(ehr_data)
-                ehr_model_predictions[idx] = y_probs
-            pe_net_predictions[idx].append(probs)
+                ehr_model_probabilities[idx] = y_probs
+            pe_net_probabilities[idx].append(probs)
             ground_truth_labels[idx] = label.item()
 
+    final_pe_net_probabilities = {
+        pid: max(probs) for pid, probs in pe_net_probabilities.items()
+    }
     final_pe_net_predictions = {
-        pid: max(probs) for pid, probs in pe_net_predictions.items()
+        idx: int(prob > 0.5) for idx, prob in final_pe_net_probabilities.items()
     }
 
-    max_probs, labels = np.array(list(final_pe_net_predictions.values())), np.array(
+    max_probs, labels = np.array(list(final_pe_net_probabilities.values())), np.array(
         list(ground_truth_labels.values())
     )
     pe_net_metrics = {
@@ -84,44 +87,73 @@ def evaluate(test_parameters_path: str):
         "PE-Net: ROC-AUC": sk_metrics.roc_auc_score(labels, max_probs),
     }
     print(pe_net_metrics)
+    PlotUtility.plot_confusion_matrix(
+        "pe_net_only_confusion_matrix.pdf",
+        labels,
+        list(final_pe_net_predictions.values()),
+    )
 
+    ehr_model_predictions = {
+        idx: int(prob > 0.5) for idx, prob in ehr_model_probabilities.items()
+    }
     ehr_model_metrics = {
         "EHR Model: PR-AUC": average_precision_score(
-            labels, list(ehr_model_predictions.values())
+            labels, list(ehr_model_probabilities.values())
         ),
         "EHR MOdel: ROC-AUC": roc_auc_score(
-            labels, list(ehr_model_predictions.values())
+            labels, list(ehr_model_probabilities.values())
         ),
     }
     print(ehr_model_metrics)
+    PlotUtility.plot_confusion_matrix(
+        "ehr_only_confusion_matrix.pdf", labels, list(ehr_model_predictions.values())
+    )
 
-    final_predictions_max = {}
-    for idx, pe_net_prediction in final_pe_net_predictions.items():
-        ehr_model_prediction = ehr_model_predictions[idx]
-        final_predictions_max[idx] = max(pe_net_prediction, ehr_model_prediction[0])
+    final_probabilities_max = {}
+    for idx, pe_net_prediction in final_pe_net_probabilities.items():
+        ehr_model_prediction = ehr_model_probabilities[idx]
+        final_probabilities_max[idx] = max(pe_net_prediction, ehr_model_prediction[0])
+    final_predictions_max = {
+        idx: int(prob > 0.5) for idx, prob in final_probabilities_max.items()
+    }
     final_metrics_max = {
         "FINAL-MAX PR-AUC": average_precision_score(
-            labels, list(final_predictions_max.values())
+            labels, list(final_probabilities_max.values())
         ),
         "FINAL-MAX ROC-AUC": roc_auc_score(
-            labels, list(final_predictions_max.values())
+            labels, list(final_probabilities_max.values())
         ),
     }
     print(final_metrics_max)
+    PlotUtility.plot_confusion_matrix(
+        "late_fusion_max_confusion_matrix.pdf",
+        labels,
+        list(final_predictions_max.values()),
+    )
 
-    final_predictions_avg = {}
-    for idx, pe_net_prediction in final_pe_net_predictions.items():
-        ehr_model_prediction = ehr_model_predictions[idx]
-        final_predictions_avg[idx] = (pe_net_prediction + ehr_model_prediction[0]) / 2.0
+    final_probabilities_avg = {}
+    for idx, pe_net_prediction in final_pe_net_probabilities.items():
+        ehr_model_prediction = ehr_model_probabilities[idx]
+        final_probabilities_avg[idx] = (
+            pe_net_prediction + ehr_model_prediction[0]
+        ) / 2.0
+    final_predictions_avg = {
+        idx: int(prob > 0.5) for idx, prob in final_probabilities_avg.items()
+    }
     final_metrics_average = {
         "FINAL-AVG PR-AUC": average_precision_score(
-            labels, list(final_predictions_avg.values())
+            labels, list(final_probabilities_avg.values())
         ),
         "FINAL-AVG ROC-AUC": roc_auc_score(
-            labels, list(final_predictions_avg.values())
+            labels, list(final_probabilities_avg.values())
         ),
     }
     print(final_metrics_average)
+    PlotUtility.plot_confusion_matrix(
+        "late_fusion_avg_confusion_matrix.pdf",
+        labels,
+        list(final_predictions_avg.values()),
+    )
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
 

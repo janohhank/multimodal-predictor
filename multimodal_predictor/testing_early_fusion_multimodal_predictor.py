@@ -8,6 +8,7 @@ import torch
 import torch.package
 from sklearn.metrics import average_precision_score, roc_auc_score
 
+from plot_utils import PlotUtility
 from pe_early_fusion_dataset_loader import (
     PEEarlyFusionDatasetLoader,
 )
@@ -55,7 +56,7 @@ def evaluate(test_parameters_path: str):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device initialized: {device}.")
 
-    predictions = {}
+    probabilities = {}
     ground_truth_labels = {}
     with torch.no_grad():
         for ct_inputs, ehr_data, label, patient_id in dataset_loader:
@@ -70,18 +71,24 @@ def evaluate(test_parameters_path: str):
             y_prob = xgboost_model.predict_proba(xgboost_input)[:, 1]
 
             idx = patient_id.item()
-            predictions[idx] = y_prob
+            probabilities[idx] = y_prob
             ground_truth_labels[idx] = label.item()
 
+    predictions = {idx: int(prob > 0.5) for idx, prob in probabilities.items()}
     model_metrics = {
         "PR-AUC": average_precision_score(
-            list(ground_truth_labels.values()), list(predictions.values())
+            list(ground_truth_labels.values()), list(probabilities.values())
         ),
         "ROC-AUC": roc_auc_score(
-            list(ground_truth_labels.values()), list(predictions.values())
+            list(ground_truth_labels.values()), list(probabilities.values())
         ),
     }
     print(model_metrics)
+    PlotUtility.plot_confusion_matrix(
+        "early_fusion_confusion_matrix.pdf",
+        list(ground_truth_labels.values()),
+        list(predictions.values()),
+    )
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
 
