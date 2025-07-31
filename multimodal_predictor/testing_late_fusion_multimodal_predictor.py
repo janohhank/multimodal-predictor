@@ -48,7 +48,7 @@ def evaluate(test_parameters_path: str):
     )
     print("Dataset initialized.")
 
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device initialized: {device}.")
 
     ground_truth_labels = {}
@@ -57,8 +57,8 @@ def evaluate(test_parameters_path: str):
     with torch.no_grad():
         for ct_inputs, ehr_data, label, patient_id in dataset_loader:
             ct_inputs = ct_inputs.to(device)  # (1, 1, D, H, W)
-            outputs = pe_net_model(ct_inputs)
-            probs = torch.sigmoid(outputs).cpu().item()
+            logits, _ = pe_net_model(ct_inputs)
+            probs = torch.sigmoid(logits).cpu().item()
 
             idx = patient_id.item()
             if idx not in pe_net_predictions:

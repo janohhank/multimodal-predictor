@@ -40,6 +40,10 @@ def evaluate(test_parameters_path: str):
     scaler = joblib.load(ehr_scaler_path)
     selector = joblib.load(ehr_selector_path)
 
+    selected_indices = selector.get_support(indices=True)
+    print(f"Selected feature indices: {selected_indices}")
+    print(f"Number of selected features: {len(selected_indices)}")
+
     # Load test dataset
     dataset_loader: PEEarlyFusionDatasetLoader = PEEarlyFusionDatasetLoader(
         dataset_path,
@@ -48,7 +52,7 @@ def evaluate(test_parameters_path: str):
     )
     print("Dataset initialized.")
 
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device initialized: {device}.")
 
     predictions = {}

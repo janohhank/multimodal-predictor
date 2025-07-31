@@ -42,7 +42,7 @@ class PELateFusionDataset(Dataset):
 
         # Match all .npy/.json/.csv files and index window positions.
         for file_name in os.listdir(data_dir):
-            if file_name.endswith(".npy"):
+            if file_name.endswith(".npy") and "_ct_features" not in file_name:
                 base_name = file_name[:-4]
                 npy_path = os.path.join(data_dir, base_name + ".npy")
                 json_path = os.path.join(data_dir, base_name + ".json")
