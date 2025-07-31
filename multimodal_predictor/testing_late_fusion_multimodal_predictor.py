@@ -8,11 +8,13 @@ import torch
 import torch.package
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-from plot_utils import PlotUtility
+from multimodal_predictor.utils.plot_utils import PlotUtility
 from pe_logistic_regression.logistic_regression_model_helper import (
     LogisticRegressionModelHelper,
 )
-from pe_late_fusion_dataset_loader import PELateFusionDatasetLoader
+from multimodal_predictor.dataset.pe_late_fusion_dataset_loader import (
+    PELateFusionDatasetLoader,
+)
 from pe_net.pe_net_model_helper import PENetModelHelper
 
 

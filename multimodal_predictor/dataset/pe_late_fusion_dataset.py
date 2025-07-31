@@ -156,7 +156,7 @@ class PELateFusionDataset(Dataset):
             )
         return np.array(slices)
 
-    def __normalize(self, volume):
+    def __normalize(delf, volume):
         """Normalize an ndarray of raw Hounsfield Units to [-1, 1].
 
         Clips the values to [min, max] and scales into [0, 1],

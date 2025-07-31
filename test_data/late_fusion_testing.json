@@ -1,7 +1,7 @@
 {
   "test_dataset": "d:\\Downloads\\radfusion-dataset\\split\\test",
   "pe_net_model": {
-    "model_path": "D:\\Downloads\\radfusion-dataset\\pe_net_model\\penet_whole_2.pt",
+    "model_path": "D:\\Downloads\\radfusion-dataset\\pe_net_model\\penet_whole.pt",
     "model_package": "model",
     "model_resource": "model.pkl",
     "window_size": 24

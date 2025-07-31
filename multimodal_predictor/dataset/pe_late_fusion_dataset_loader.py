@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 
-from pe_late_fusion_dataset import PELateFusionDataset
+from .pe_late_fusion_dataset import PELateFusionDataset
 
 
 class PELateFusionDatasetLoader(DataLoader):

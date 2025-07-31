@@ -8,8 +8,8 @@ import torch
 import torch.package
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-from plot_utils import PlotUtility
-from pe_early_fusion_dataset_loader import (
+from multimodal_predictor.utils.plot_utils import PlotUtility
+from multimodal_predictor.dataset.pe_early_fusion_dataset_loader import (
     PEEarlyFusionDatasetLoader,
 )
 from pe_xgboost.xgboost_model_helper import XGBoostModelHelper
@@ -100,7 +100,7 @@ def evaluate(test_parameters_path: str):
         list(probabilities.values()),
     )
 
-    print("Finished the evaluation of late-fusion PE multimodal predictor.")
+    print("Finished the evaluation of early-fusion PE multimodal predictor.")
 
 
 def main():
