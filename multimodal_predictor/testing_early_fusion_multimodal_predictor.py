@@ -89,6 +89,16 @@ def evaluate(test_parameters_path: str):
         list(ground_truth_labels.values()),
         list(predictions.values()),
     )
+    PlotUtility.plot_roc_curve(
+        "early_fusion_roc_curve.pdf",
+        list(ground_truth_labels.values()),
+        list(probabilities.values()),
+    )
+    PlotUtility.plot_pr_curve(
+        "early_fusion_pr_curve.pdf",
+        list(ground_truth_labels.values()),
+        list(probabilities.values()),
+    )
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
 

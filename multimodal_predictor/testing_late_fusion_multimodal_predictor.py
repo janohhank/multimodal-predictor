@@ -130,6 +130,16 @@ def evaluate(test_parameters_path: str):
         labels,
         list(final_predictions_max.values()),
     )
+    PlotUtility.plot_roc_curve(
+        "late_fusion_max_roc_curve.pdf",
+        list(ground_truth_labels.values()),
+        list(final_probabilities_max.values()),
+    )
+    PlotUtility.plot_pr_curve(
+        "late_fusion_max_pr_curve.pdf",
+        list(ground_truth_labels.values()),
+        list(final_probabilities_max.values()),
+    )
 
     final_probabilities_avg = {}
     for idx, pe_net_prediction in final_pe_net_probabilities.items():
@@ -153,6 +163,16 @@ def evaluate(test_parameters_path: str):
         "late_fusion_avg_confusion_matrix.pdf",
         labels,
         list(final_predictions_avg.values()),
+    )
+    PlotUtility.plot_roc_curve(
+        "late_fusion_avg_roc_curve.pdf",
+        list(ground_truth_labels.values()),
+        list(final_probabilities_max.values()),
+    )
+    PlotUtility.plot_pr_curve(
+        "late_fusion_avg_pr_curve.pdf",
+        list(ground_truth_labels.values()),
+        list(final_probabilities_max.values()),
     )
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
