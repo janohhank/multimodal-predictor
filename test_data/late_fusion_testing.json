@@ -1,14 +1,14 @@
 {
   "test_dataset": "d:\\Downloads\\radfusion-dataset\\split\\test",
   "pe_net_model": {
-    "model_path": "D:\\Downloads\\radfusion-dataset\\pe_net_model\\penet_whole.pt",
+    "model_path": "D:\\Downloads\\radfusion-dataset\\pe_net_model\\penet_whole_late_fusion.pt",
     "model_package": "model",
     "model_resource": "model.pkl",
     "window_size": 24
   },
   "ehr_model": {
-    "model_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model\\2025-07-29-15-50-41\\model\\model.pkl",
-    "scaler_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model\\2025-07-29-15-50-41\\model\\scaler.pkl",
+    "model_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model_only_ehr\\2025-07-29-15-50-41\\model\\model.pkl",
+    "scaler_path": "D:\\Downloads\\radfusion-dataset\\logistic_regression_model_only_ehr\\2025-07-29-15-50-41\\model\\scaler.pkl",
     "features": [
       " COMPLICATIONS OCCURRING MAINLY IN THE COURSE OF LABOR AND DELIVERY:frequency",
       " Other congenital anomalies of heart:frequency",

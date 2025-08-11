@@ -1,5 +1,7 @@
 import argparse
 import json
+import os
+from datetime import datetime
 
 import numpy as np
 import torch.multiprocessing as mp
@@ -20,6 +22,8 @@ from pe_net.pe_net_model_helper import PENetModelHelper
 
 def evaluate(test_parameters_path: str):
     print("Starting the evaluation of late-fusion PE multimodal predictor.")
+    training_datetime = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    os.makedirs(training_datetime)
 
     with open(test_parameters_path, "r") as config_file:
         config: dict = json.load(config_file)
@@ -90,7 +94,7 @@ def evaluate(test_parameters_path: str):
     }
     print(pe_net_metrics)
     PlotUtility.plot_confusion_matrix(
-        "pe_net_only_confusion_matrix.pdf",
+        os.path.join(training_datetime, "pe_net_only_confusion_matrix.pdf"),
         labels,
         list(final_pe_net_predictions.values()),
     )
@@ -108,7 +112,9 @@ def evaluate(test_parameters_path: str):
     }
     print(ehr_model_metrics)
     PlotUtility.plot_confusion_matrix(
-        "ehr_only_confusion_matrix.pdf", labels, list(ehr_model_predictions.values())
+        os.path.join(training_datetime, "ehr_only_confusion_matrix.pdf"),
+        labels,
+        list(ehr_model_predictions.values()),
     )
 
     final_probabilities_max = {}
@@ -128,17 +134,17 @@ def evaluate(test_parameters_path: str):
     }
     print(final_metrics_max)
     PlotUtility.plot_confusion_matrix(
-        "late_fusion_max_confusion_matrix.pdf",
+        os.path.join(training_datetime, "late_fusion_max_confusion_matrix.pdf"),
         labels,
         list(final_predictions_max.values()),
     )
     PlotUtility.plot_roc_curve(
-        "late_fusion_max_roc_curve.pdf",
+        os.path.join(training_datetime, "late_fusion_max_roc_curve.pdf"),
         list(ground_truth_labels.values()),
         list(final_probabilities_max.values()),
     )
     PlotUtility.plot_pr_curve(
-        "late_fusion_max_pr_curve.pdf",
+        os.path.join(training_datetime, "late_fusion_max_pr_curve.pdf"),
         list(ground_truth_labels.values()),
         list(final_probabilities_max.values()),
     )
@@ -162,17 +168,17 @@ def evaluate(test_parameters_path: str):
     }
     print(final_metrics_average)
     PlotUtility.plot_confusion_matrix(
-        "late_fusion_avg_confusion_matrix.pdf",
+        os.path.join(training_datetime, "late_fusion_avg_confusion_matrix.pdf"),
         labels,
         list(final_predictions_avg.values()),
     )
     PlotUtility.plot_roc_curve(
-        "late_fusion_avg_roc_curve.pdf",
+        os.path.join(training_datetime, "late_fusion_avg_roc_curve.pdf"),
         list(ground_truth_labels.values()),
         list(final_probabilities_max.values()),
     )
     PlotUtility.plot_pr_curve(
-        "late_fusion_avg_pr_curve.pdf",
+        os.path.join(training_datetime, "late_fusion_avg_pr_curve.pdf"),
         list(ground_truth_labels.values()),
         list(final_probabilities_max.values()),
     )

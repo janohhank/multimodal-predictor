@@ -1,23 +1,30 @@
 import argparse
 import json
+import os
+from datetime import datetime
 
 import joblib
 import numpy as np
+import pandas as pd
 import torch.multiprocessing as mp
 import torch
 import torch.package
 from sklearn.metrics import average_precision_score, roc_auc_score
 
+from pe_logistic_regression.logistic_regression_model_helper import (
+    LogisticRegressionModelHelper,
+)
 from utils.plot_utils import PlotUtility
 from dataset.pe_early_fusion_dataset_loader import (
     PEEarlyFusionDatasetLoader,
 )
-from pe_xgboost.xgboost_model_helper import XGBoostModelHelper
 from pe_net.pe_net_model_helper import PENetModelHelper
 
 
 def evaluate(test_parameters_path: str):
     print("Starting the evaluation of late-fusion PE multimodal predictor.")
+    training_datetime = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    os.makedirs(training_datetime)
 
     with open(test_parameters_path, "r") as config_file:
         config: dict = json.load(config_file)
@@ -33,17 +40,12 @@ def evaluate(test_parameters_path: str):
         pe_net_model_path, pe_net_model_package, pe_net_model_resource
     )
 
-    # Load XGBoost model
-    ehr_model_path: str = config["ehr_model"]["model_path"]
-    ehr_scaler_path: str = config["ehr_model"]["scaler_path"]
-    ehr_selector_path: list = config["ehr_model"]["selector_path"]
-    xgboost_model = XGBoostModelHelper.load_model(ehr_model_path)
-    scaler = joblib.load(ehr_scaler_path)
-    selector = joblib.load(ehr_selector_path)
-
-    selected_indices = selector.get_support(indices=True)
-    print(f"Selected feature indices: {selected_indices}")
-    print(f"Number of selected features: {len(selected_indices)}")
+    # Load Logistic Regression mixed ehr+ct model
+    mixed_model_path: str = config["mixed_model"]["model_path"]
+    mixed_scaler_path: str = config["mixed_model"]["scaler_path"]
+    mixed_selected_features: list = config["mixed_model"]["features"]
+    mixed_model = LogisticRegressionModelHelper.load_model(mixed_model_path)
+    scaler = joblib.load(mixed_scaler_path)
 
     # Load test dataset
     dataset_loader: PEEarlyFusionDatasetLoader = PEEarlyFusionDatasetLoader(
@@ -59,16 +61,31 @@ def evaluate(test_parameters_path: str):
     probabilities = {}
     ground_truth_labels = {}
     with torch.no_grad():
-        for ct_inputs, ehr_data, label, patient_id in dataset_loader:
+        for ct_inputs, ehr_column_names, ehr_data, label, patient_id in dataset_loader:
             ct_inputs = ct_inputs.to(device)  # (1, 1, D, H, W)
             _, features = pe_net_model.forward(ct_inputs)
 
-            scaled = scaler.transform(
-                np.hstack([ehr_data.cpu().numpy()[0], features.cpu().numpy()])
-            )
-            xgboost_input = selector.transform(scaled)
+            ehr_numpy = ehr_data.cpu().numpy()[0]
 
-            y_prob = xgboost_model.predict_proba(xgboost_input)[:, 1]
+            # EHR data
+            ehr_df = pd.DataFrame(
+                ehr_numpy,
+                columns=[t[0] for t in ehr_column_names],
+                index=pd.DataFrame(ehr_numpy).index,
+            )
+
+            # CT data
+            ct = np.vstack([features.cpu().numpy() for _, row in ehr_df.iterrows()])
+            ct_col_names = [f"ct_{i+1}" for i in range(ct.shape[1])]
+            df_ct = pd.DataFrame(ct, columns=ct_col_names, index=ehr_df.index)
+
+            # Mixed data
+            dataset_df = pd.concat(
+                [ehr_df.reset_index(drop=True), df_ct.reset_index(drop=True)], axis=1
+            )
+
+            scaled = scaler.transform(dataset_df[mixed_selected_features])
+            y_prob = mixed_model.predict_proba(scaled)[:, 1]
 
             idx = patient_id.item()
             probabilities[idx] = y_prob
@@ -85,17 +102,17 @@ def evaluate(test_parameters_path: str):
     }
     print(model_metrics)
     PlotUtility.plot_confusion_matrix(
-        "early_fusion_confusion_matrix.pdf",
+        os.path.join(training_datetime, "early_fusion_confusion_matrix.pdf"),
         list(ground_truth_labels.values()),
         list(predictions.values()),
     )
     PlotUtility.plot_roc_curve(
-        "early_fusion_roc_curve.pdf",
+        os.path.join(training_datetime, "early_fusion_roc_curve.pdf"),
         list(ground_truth_labels.values()),
         list(probabilities.values()),
     )
     PlotUtility.plot_pr_curve(
-        "early_fusion_pr_curve.pdf",
+        os.path.join(training_datetime, "early_fusion_pr_curve.pdf"),
         list(ground_truth_labels.values()),
         list(probabilities.values()),
     )

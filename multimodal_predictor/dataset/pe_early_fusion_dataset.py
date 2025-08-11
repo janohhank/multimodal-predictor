@@ -93,6 +93,7 @@ class PEEarlyFusionDataset(Dataset):
 
         return (
             volume_window,
+            ehr_data.drop("label", axis=1).drop("idx", axis=1).columns.tolist(),
             ehr_data.drop("label", axis=1).drop("idx", axis=1).to_numpy(),
             label,
             patient_id,
