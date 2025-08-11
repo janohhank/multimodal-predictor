@@ -8,8 +8,8 @@ import torch
 import torch.package
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-from multimodal_predictor.utils.plot_utils import PlotUtility
-from multimodal_predictor.dataset.pe_early_fusion_dataset_loader import (
+from utils.plot_utils import PlotUtility
+from dataset.pe_early_fusion_dataset_loader import (
     PEEarlyFusionDatasetLoader,
 )
 from pe_xgboost.xgboost_model_helper import XGBoostModelHelper

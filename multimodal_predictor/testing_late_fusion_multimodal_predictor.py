@@ -8,11 +8,11 @@ import torch
 import torch.package
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-from multimodal_predictor.utils.plot_utils import PlotUtility
+from utils.plot_utils import PlotUtility
 from pe_logistic_regression.logistic_regression_model_helper import (
     LogisticRegressionModelHelper,
 )
-from multimodal_predictor.dataset.pe_late_fusion_dataset_loader import (
+from dataset.pe_late_fusion_dataset_loader import (
     PELateFusionDatasetLoader,
 )
 from pe_net.pe_net_model_helper import PENetModelHelper
@@ -60,7 +60,7 @@ def evaluate(test_parameters_path: str):
     with torch.no_grad():
         for ct_inputs, ehr_data, label, patient_id in dataset_loader:
             ct_inputs = ct_inputs.to(device)  # (1, 1, D, H, W)
-            logits, _ = pe_net_model(ct_inputs)
+            logits = pe_net_model(ct_inputs)
             probs = torch.sigmoid(logits).cpu().item()
 
             idx = patient_id.item()
