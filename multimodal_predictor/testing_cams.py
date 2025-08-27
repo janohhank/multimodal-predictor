@@ -1,118 +1,129 @@
 import os
+from datetime import datetime
 
-import cv2
-from moviepy import ImageSequenceClip, clips_array
 import argparse
 import json
 
 import numpy as np
-import torch.multiprocessing as mp
+import torch.nn.functional as F
 import torch
 import torch.package
 from matplotlib import pyplot as plt
-from scipy.interpolate import interpolate
+from moviepy import ImageSequenceClip, clips_array
 
-from cams.grad_cam import GradCAM
-from dataset.pe_late_fusion_dataset import PELateFusionDataset
-from pe_logistic_regression.logistic_regression_model_helper import (
-    LogisticRegressionModelHelper,
-)
-from dataset.pe_late_fusion_dataset_loader import (
-    PELateFusionDatasetLoader,
+from dataset.pe_early_fusion_dataset_loader import (
+    PEEarlyFusionDatasetLoader,
 )
 from pe_net.pe_net_model_helper import PENetModelHelper
 
 
-def resize(cam, input_img, interpolation="linear"):
-    """Resizes a volume using factorized bilinear interpolation"""
-    print(input_img.shape)
-    temp_cam = np.zeros((cam.shape[0], input_img.shape[0], input_img.shape[1]))
-    for dim in range(temp_cam.shape[0]):
-        temp_cam[dim, :, :] = cv2.resize(
-            cam[dim, :, :], dsize=(temp_cam.shape[2], temp_cam.shape[1])
-        )
+class GradCAM3D:
+    def __init__(self, model, target_layer, device):
+        self.model = model
+        self.target_layer = target_layer
+        self.device = device
 
-    if temp_cam.shape[0] == 1:
-        new_cam = np.tile(temp_cam, (input_img.shape[0], 1, 1))
-    else:
-        new_cam = np.zeros((input_img.shape[0], temp_cam.shape[1], temp_cam.shape[2]))
-        for i in range(temp_cam.shape[1] * temp_cam.shape[2]):
-            y = i % temp_cam.shape[2]
-            x = i // temp_cam.shape[2]
-            compressed = temp_cam[:, x, y]
-            labels = np.arange(compressed.shape[0], step=1)
-            new_labels = np.linspace(0, compressed.shape[0] - 1, new_cam.shape[0])
-            f = interpolate.interp1d(labels, compressed, kind=interpolation)
-            expanded = f(new_labels)
-            new_cam[:, x, y] = expanded
+        self.activations = None
+        self.gradients = None
 
-    return new_cam
+        # Register hooks
+        self.target_layer.register_forward_hook(self.forward_hook)
+        self.target_layer.register_backward_hook(self.backward_hook)
 
+    def forward_hook(self, module, input, output):
+        self.activations = output
 
-def add_heat_map(
-    pixels_np, intensities_np, alpha_img=0.33, color_map="magma", normalize=True
-):
-    """Add a CAM heat map as an overlay on a PNG image.
+    def backward_hook(self, module, grad_in, grad_out):
+        self.gradients = grad_out[0]
 
-    Args:
-        pixels_np: Pixels to add the heat map on top of. Must be in range (0, 1).
-        intensities_np: Intensity values for the heat map. Must be in range (0, 1).
-        alpha_img: Weight for image when summing with heat map. Must be in range (0, 1).
-        color_map: Color map scheme to use with PyPlot.
-        normalize: If True, normalize the intensities to range exactly from 0 to 1.
+    def generate_cam(self, input_tensor, class_idx=None):
+        self.model.eval()
+        input_tensor = input_tensor.to(self.device)
 
-    Returns:
-        Original pixels with heat map overlaid.
-    """
-    assert np.max(intensities_np) <= 1 and np.min(intensities_np) >= 0
-    color_map_fn = plt.get_cmap(color_map)
-    if normalize:
-        intensities_np = normalize_to_image(intensities_np)
-    else:
-        intensities_np *= 255
-    heat_map = color_map_fn(intensities_np.astype(np.uint8))
-    if len(heat_map.shape) == 3:
-        heat_map = heat_map[:, :, :3]
-    else:
-        heat_map = heat_map[:, :, :, :3]
+        # Forward pass
+        output, _ = self.model(input_tensor)
 
-    new_img = alpha_img * pixels_np.astype(np.float32) + (
-        1.0 - alpha_img
-    ) * heat_map.astype(np.float32)
-    new_img = np.uint8(normalize_to_image(new_img))
+        # If no class index provided, take predicted
+        if class_idx is None:
+            class_idx = output.argmax(dim=1).item()
 
-    return new_img
+        # Backward pass
+        self.model.zero_grad()
+        one_hot = torch.zeros_like(output)
+        one_hot[0, class_idx] = 1
+        output.backward(gradient=one_hot)
+
+        # Compute weights
+        gradients = self.gradients[0]  # (C, D, H, W)
+        activations = self.activations[0]  # (C, D, H, W)
+        weights = gradients.mean(dim=(1, 2, 3))  # (C,)
+
+        cam = torch.zeros_like(activations[0])
+        for i, w in enumerate(weights):
+            cam += w * activations[i]
+
+        cam = F.relu(cam)  # ReLU
+        cam = cam.detach().cpu().numpy()
+
+        # Normalize CAM
+        cam -= cam.min()
+        cam /= cam.max() + 1e-8
+        return cam
 
 
-def normalize_to_image(img):
-    """Normalizes img to be in the range 0-255."""
-    img -= np.amin(img)
-    img /= np.amax(img) + 1e-7
-    img *= 255
-    return img
+def find_layer(target_layer, model):
+    for name, module in model.named_modules():
+        if name == target_layer:
+            return module
+    raise ValueError("Invalid layer name: {}".format(target_layer))
 
 
-def normalize(volume):
-    """Normalize an ndarray of raw Hounsfield Units to [-1, 1].
-
-    Clips the values to [min, max] and scales into [0, 1],
-    then subtracts the mean pixel (min, max, mean are defined in constants.py).
-
-    Args:
-        pixels: NumPy ndarray to convert. Any shape.
-
-    Returns:
-        NumPy ndarray with normalized pixels in [-1, 1]. Same shape as input.
-    """
-    pixels = volume.astype(np.float32)
-    pixels = (pixels - PELateFusionDataset.CONTRAST_HU_MIN) / (
-        PELateFusionDataset.CONTRAST_HU_MAX - PELateFusionDataset.CONTRAST_HU_MIN
+def overlay_cam_on_slice(slice_img, cam_slice, alpha=0.4, cmap="jet"):
+    slice_img = (slice_img - slice_img.min()) / (
+        slice_img.max() - slice_img.min() + 1e-8
     )
-    return np.clip(pixels, 0.0, 1.0) - PELateFusionDataset.CONTRAST_HU_MEAN
+    cam_slice = (cam_slice - cam_slice.min()) / (
+        cam_slice.max() - cam_slice.min() + 1e-8
+    )
+
+    cam_resized = (
+        F.interpolate(
+            torch.tensor(cam_slice).unsqueeze(0).unsqueeze(0),  # [1, 1, H, W]
+            size=(208, 208),
+            mode="bilinear",
+            align_corners=False,
+        )
+        .squeeze()
+        .numpy()
+    )
+
+    # Normalize to [0,1]
+    cam_resized = (cam_resized - cam_resized.min()) / (
+        cam_resized.max() - cam_resized.min() + 1e-8
+    )
+
+    cmap_func = plt.get_cmap(cmap)  # e.g. cmap = "jet"
+    heatmap = cmap_func(cam_resized)[:, :, :3]  # get RGB
+
+    # heatmap = cm.get_cmap(cmap)(cam_slice)[:, :, :3]  # RGB
+    overlay = (1 - alpha) * np.repeat(
+        slice_img[:, :, None], 3, axis=2
+    ) + alpha * heatmap
+    return np.clip(overlay, 0, 1)
+
+
+def to_rgb(arr):
+    if arr.ndim == 2:  # grayscale → RGB
+        arr = np.stack([arr] * 3, axis=-1)
+    elif arr.shape[2] == 1:  # single channel → RGB
+        arr = np.repeat(arr, 3, axis=2)
+    return arr
 
 
 def evaluate(test_parameters_path: str):
     print("Starting the evaluation of late-fusion PE multimodal predictor.")
+    training_datetime = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    os.makedirs(training_datetime)
 
     with open(test_parameters_path, "r") as config_file:
         config: dict = json.load(config_file)
@@ -128,71 +139,61 @@ def evaluate(test_parameters_path: str):
         pe_net_model_path, pe_net_model_package, pe_net_model_resource
     )
 
-    # Load PE logistic regression model
-    ehr_model_path: str = config["ehr_model"]["model_path"]
-    ehr_scaler_path: str = config["ehr_model"]["scaler_path"]
-    ehr_features: list = config["ehr_model"]["features"]
-    logistic_regression_model = LogisticRegressionModelHelper.load_model(ehr_model_path)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device initialized: {device}.")
+    pe_net_model.to(device)
+    pe_net_model.eval()
+
+    grad_cam = GradCAM3D(
+        pe_net_model,
+        target_layer=find_layer("module.encoders.3", pe_net_model),
+        device=device,
+    )
 
     # Load test dataset
-    dataset_loader: PELateFusionDatasetLoader = PELateFusionDatasetLoader(
+    dataset_loader: PEEarlyFusionDatasetLoader = PEEarlyFusionDatasetLoader(
         dataset_path,
-        ehr_scaler_path,
-        ehr_features,
         window_size=pe_net_window_size,
         num_workers=4,
     )
     print("Dataset initialized.")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device initialized: {device}.")
-
-    grad_cam = GradCAM(pe_net_model, device, is_binary=True, is_3d=True)
-
-    for ct_inputs, ehr_data, label, patient_id in dataset_loader:
-        if label.item() != 1:
+    a: int = 0
+    for ct_inputs, ehr_column_names, ehr_data, label, patient_id in dataset_loader:
+        if label == 0:
             continue
 
-        print(f"CT inputs size: {ct_inputs.shape}")
+        ct_inputs = ct_inputs.to(device).requires_grad_(True)  # (1, 1, D, H, W)
 
-        # ct_inputs = ct_inputs.to(device)  # (1, 1, D, H, W)
+        # Generate CAM
+        cam_volume = grad_cam.generate_cam(ct_inputs, class_idx=None)  # (D, H, W)
 
-        print("Generating CAM...")
-        with torch.set_grad_enabled(True):
-            probs, idx = grad_cam.forward(ct_inputs)
-            grad_cam.backward(idx=idx[0])  # Just take top prediction
-            cam = grad_cam.get_cam("module.encoders.3")
+        volume_np = ct_inputs[0, 0].detach().cpu().numpy()  # (D, H, W)
+        overlay_slices = []
+        for i in range(cam_volume.shape[0]):
+            overlay = overlay_cam_on_slice(volume_np[i], cam_volume[i])
+            overlay_slices.append(overlay)
+            # plt.imshow(overlay)
+            # plt.title(f"Slice {i}")
+            # plt.axis("off")
+            # plt.show()
 
-        print("Overlaying CAM...")
-        print(cam.shape)
-        new_cam = resize(cam, ct_inputs.cpu().numpy()[0])
-        print(new_cam.shape)
+        # Suppose overlay_slices is a list of RGB numpy arrays, shape (H, W, 3), values in [0,1]
+        # Convert to uint8 [0,255]
+        frames_uint8 = [
+            (np.clip(img * 255, 0, 255)).astype(np.uint8) for img in overlay_slices
+        ]
 
-        input_np = normalize(ct_inputs.cpu().numpy()[0])
-        print(input_np.shape)
-        input_np = np.transpose(input_np, (1, 2, 3, 0))
-        input_frames = list(input_np)
+        # Create GIF (fps controls speed)
+        overlay_clip = ImageSequenceClip(frames_uint8, fps=2)
 
-        input_normed = np.float32(input_np) / 255
-        cam_frames = list(add_heat_map(input_normed, new_cam))
-
-        output_path_input = os.path.join(
-            "{}_input_fn_intermountain.gif".format(patient_id.item()),
+        overlay_clip.write_gif(
+            os.path.join(
+                training_datetime, f"{str(patient_id.item())}-{a}-gradcam_ct.gif"
+            ),
+            fps=2,
         )
-        output_path_cam = os.path.join(
-            "{}_cam_fn_intermountain.gif".format(patient_id.item()),
-        )
-        output_path_combined = os.path.join(
-            "{}_combined_fn_intermountain.gif".format(patient_id.item()),
-        )
-
-        input_clip = ImageSequenceClip(input_frames, fps=4)
-        input_clip.write_gif(output_path_input, verbose=False)
-        cam_clip = ImageSequenceClip(cam_frames, fps=4)
-        cam_clip.write_gif(output_path_cam, verbose=False)
-        combined_clip = clips_array([[input_clip, cam_clip]])
-        combined_clip.write_gif(output_path_combined, verbose=False)
-        break
+        a = a + 1
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
 

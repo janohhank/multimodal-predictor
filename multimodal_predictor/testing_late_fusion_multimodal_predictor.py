@@ -8,7 +8,7 @@ import torch.multiprocessing as mp
 import sklearn.metrics as sk_metrics
 import torch
 import torch.package
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, recall_score
 
 from utils.plot_utils import PlotUtility
 from pe_logistic_regression.logistic_regression_model_helper import (
@@ -89,8 +89,11 @@ def evaluate(test_parameters_path: str):
         list(ground_truth_labels.values())
     )
     pe_net_metrics = {
-        "PE-Net: PR-AUC": sk_metrics.average_precision_score(labels, max_probs),
         "PE-Net: ROC-AUC": sk_metrics.roc_auc_score(labels, max_probs),
+        "PE-Net: PR-AUC": sk_metrics.average_precision_score(labels, max_probs),
+        "PE-Net: Recall": sk_metrics.recall_score(
+            labels, [1 if p >= 0.5 else 0 for p in final_pe_net_probabilities.values()]
+        ),
     }
     print(pe_net_metrics)
     PlotUtility.plot_confusion_matrix(
@@ -103,12 +106,13 @@ def evaluate(test_parameters_path: str):
         idx: int(prob > 0.5) for idx, prob in ehr_model_probabilities.items()
     }
     ehr_model_metrics = {
-        "EHR Model: PR-AUC": average_precision_score(
-            labels, list(ehr_model_probabilities.values())
-        ),
         "EHR MOdel: ROC-AUC": roc_auc_score(
             labels, list(ehr_model_probabilities.values())
         ),
+        "EHR Model: PR-AUC": average_precision_score(
+            labels, list(ehr_model_probabilities.values())
+        ),
+        "EHR Model: Recall": recall_score(labels, list(ehr_model_predictions.values())),
     }
     print(ehr_model_metrics)
     PlotUtility.plot_confusion_matrix(
@@ -125,12 +129,13 @@ def evaluate(test_parameters_path: str):
         idx: int(prob > 0.5) for idx, prob in final_probabilities_max.items()
     }
     final_metrics_max = {
-        "FINAL-MAX PR-AUC": average_precision_score(
-            labels, list(final_probabilities_max.values())
-        ),
         "FINAL-MAX ROC-AUC": roc_auc_score(
             labels, list(final_probabilities_max.values())
         ),
+        "FINAL-MAX PR-AUC": average_precision_score(
+            labels, list(final_probabilities_max.values())
+        ),
+        "FINAL-MAX Recall": recall_score(labels, list(final_predictions_max.values())),
     }
     print(final_metrics_max)
     PlotUtility.plot_confusion_matrix(
@@ -159,12 +164,13 @@ def evaluate(test_parameters_path: str):
         idx: int(prob > 0.5) for idx, prob in final_probabilities_avg.items()
     }
     final_metrics_average = {
-        "FINAL-AVG PR-AUC": average_precision_score(
-            labels, list(final_probabilities_avg.values())
-        ),
         "FINAL-AVG ROC-AUC": roc_auc_score(
             labels, list(final_probabilities_avg.values())
         ),
+        "FINAL-AVG PR-AUC": average_precision_score(
+            labels, list(final_probabilities_avg.values())
+        ),
+        "FINAL-AVG Recall": recall_score(labels, list(final_predictions_avg.values())),
     }
     print(final_metrics_average)
     PlotUtility.plot_confusion_matrix(
