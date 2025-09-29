@@ -75,8 +75,8 @@ def evaluate(test_parameters_path: str):
                     ehr_data.cpu().numpy()[0]
                 )[:, 1]
                 ehr_model_probabilities[idx] = y_probs
+                ground_truth_labels[idx] = label.item()
             pe_net_probabilities[idx].append(probs)
-            ground_truth_labels[idx] = label.item()
 
     final_pe_net_probabilities = {
         pid: max(probs) for pid, probs in pe_net_probabilities.items()
@@ -181,12 +181,12 @@ def evaluate(test_parameters_path: str):
     PlotUtility.plot_roc_curve(
         os.path.join(training_datetime, "late_fusion_avg_roc_curve.pdf"),
         list(ground_truth_labels.values()),
-        list(final_probabilities_max.values()),
+        list(final_probabilities_avg.values()),
     )
     PlotUtility.plot_pr_curve(
         os.path.join(training_datetime, "late_fusion_avg_pr_curve.pdf"),
         list(ground_truth_labels.values()),
-        list(final_probabilities_max.values()),
+        list(final_probabilities_avg.values()),
     )
 
     print("Finished the evaluation of late-fusion PE multimodal predictor.")
